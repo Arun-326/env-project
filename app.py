@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import csv
+import io
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, session
@@ -354,6 +356,30 @@ def join(topic_id):
     return render_template("join.html", topic=topic)
 
 
+# ---------------- Student status route ----------------
+@app.route("/status", methods=["GET", "POST"])
+def request_status():
+    results = []
+    enrollment = ""
+    if request.method == "POST":
+        enrollment = request.form.get("enrollment_no", "").strip()
+        if enrollment:
+            conn = get_db()
+            results = execute(conn, """
+                SELECT jr.*, t.topic_name
+                FROM join_requests jr
+                LEFT JOIN topics t ON t.id = jr.topic_id
+                WHERE jr.applicant_enrollment = ?
+                ORDER BY jr.id DESC
+            """, (enrollment,)).fetchall()
+            conn.close()
+            if not results:
+                flash("No join request found for that enrollment number.", "info")
+        else:
+            flash("Please enter your enrollment number.", "error")
+    return render_template("status.html", results=results, enrollment=enrollment)
+
+
 # ---------------- Leader routes ----------------
 @app.route("/leader_login", methods=["GET", "POST"])
 def leader_login():
@@ -502,29 +528,51 @@ def admin():
     if not session.get("admin_logged_in"):
         return render_template("admin_login.html")
 
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "").strip().lower()
+
     conn = get_db()
-    join_requests = execute(conn, """
-        SELECT
-            jr.*,
-            t.topic_name,
-            t.creator_name
-        FROM join_requests jr
-        LEFT JOIN topics t ON t.id = jr.topic_id
-        ORDER BY jr.id DESC
-    """).fetchall()
-    topics = execute(conn, "SELECT * FROM topics ORDER BY id DESC").fetchall()
-    visits = execute(conn, "SELECT * FROM visits ORDER BY id DESC").fetchall()
+    try:
+        topic_params = []
+        topic_sql = "SELECT * FROM topics"
+        if q:
+            topic_sql += " WHERE creator_name LIKE ? OR enrollment_no LIKE ? OR topic_name LIKE ?"
+            term = f"%{q}%"
+            topic_params.extend([term, term, term])
+        topic_sql += " ORDER BY id DESC"
+        topics = execute(conn, topic_sql, tuple(topic_params)).fetchall()
 
-    stats = {
-        "topics": execute(conn, "SELECT COUNT(*) AS count FROM topics").fetchone()["count"],
-        "requests": execute(conn, "SELECT COUNT(*) AS count FROM join_requests").fetchone()["count"],
-        "accepted": execute(conn, 
-            "SELECT COUNT(*) AS count FROM join_requests WHERE status = 'accepted'"
-        ).fetchone()["count"],
-        "visits": execute(conn, "SELECT COUNT(*) AS count FROM visits").fetchone()["count"],
-    }
+        req_params = []
+        req_sql = """
+            SELECT jr.*, t.topic_name, t.creator_name
+            FROM join_requests jr
+            LEFT JOIN topics t ON t.id = jr.topic_id
+        """
+        clauses = []
+        if q:
+            clauses.append("(jr.applicant_name LIKE ? OR jr.applicant_enrollment LIKE ? OR t.topic_name LIKE ?)")
+            term = f"%{q}%"
+            req_params.extend([term, term, term])
+        if status in {"pending", "accepted", "rejected"}:
+            clauses.append("jr.status = ?")
+            req_params.append(status)
+        if clauses:
+            req_sql += " WHERE " + " AND ".join(clauses)
+        req_sql += " ORDER BY jr.id DESC"
+        join_requests = execute(conn, req_sql, tuple(req_params)).fetchall()
 
-    conn.close()
+        visits = execute(conn, "SELECT * FROM visits ORDER BY id DESC LIMIT 500").fetchall()
+
+        stats = {
+            "topics": execute(conn, "SELECT COUNT(*) AS count FROM topics").fetchone()["count"],
+            "requests": execute(conn, "SELECT COUNT(*) AS count FROM join_requests").fetchone()["count"],
+            "pending": execute(conn, "SELECT COUNT(*) AS count FROM join_requests WHERE status = 'pending'").fetchone()["count"],
+            "accepted": execute(conn, "SELECT COUNT(*) AS count FROM join_requests WHERE status = 'accepted'").fetchone()["count"],
+            "rejected": execute(conn, "SELECT COUNT(*) AS count FROM join_requests WHERE status = 'rejected'").fetchone()["count"],
+            "visits": execute(conn, "SELECT COUNT(*) AS count FROM visits").fetchone()["count"],
+        }
+    finally:
+        conn.close()
 
     return render_template(
         "admin.html",
@@ -532,7 +580,63 @@ def admin():
         topics=topics,
         visits=visits,
         stats=stats,
+        q=q,
+        status=status,
     )
+
+
+@app.route("/admin/topic/<int:topic_id>/edit", methods=["GET", "POST"])
+@admin_required
+def admin_edit_topic(topic_id):
+    conn = get_db()
+    topic = execute(conn, "SELECT * FROM topics WHERE id = ?", (topic_id,)).fetchone()
+    if not topic:
+        conn.close()
+        flash("Topic not found.", "error")
+        return redirect(url_for("admin"))
+
+    if request.method == "POST":
+        fields = {
+            "creator_name": request.form.get("creator_name", "").strip(),
+            "enrollment_no": request.form.get("enrollment_no", "").strip(),
+            "leader_password": request.form.get("leader_password", "").strip(),
+            "email": request.form.get("email", "").strip(),
+            "mobile": request.form.get("mobile", "").strip(),
+            "gender": request.form.get("gender", "").strip(),
+            "topic_name": request.form.get("topic_name", "").strip(),
+            "description": request.form.get("description", "").strip(),
+            "looking_for_members": 1 if request.form.get("looking_for_members") else 0,
+            "creator_contact": request.form.get("creator_contact", "").strip(),
+        }
+        if not fields["creator_name"] or not fields["enrollment_no"] or not fields["topic_name"]:
+            flash("Name, enrollment number, and topic name are required.", "error")
+            conn.close()
+            return render_template("admin_edit_topic.html", topic=topic)
+        if not fields["leader_password"]:
+            fields["leader_password"] = topic["leader_password"]
+        try:
+            execute(conn, """
+                UPDATE topics SET creator_name=?, enrollment_no=?, leader_password=?, email=?, mobile=?,
+                    gender=?, topic_name=?, description=?, looking_for_members=?, creator_contact=?
+                WHERE id=?
+            """, (
+                fields["creator_name"], fields["enrollment_no"], fields["leader_password"], fields["email"],
+                fields["mobile"], fields["gender"], fields["topic_name"], fields["description"],
+                fields["looking_for_members"], fields["creator_contact"], topic_id
+            ))
+            conn.commit()
+            flash("Topic updated successfully.", "success")
+            conn.close()
+            return redirect(url_for("admin"))
+        except Exception as exc:
+            conn.rollback()
+            app.logger.exception("Topic update failed")
+            msg = "Could not update topic."
+            if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+                msg = "That enrollment number is already used by another topic."
+            flash(msg, "error")
+    conn.close()
+    return render_template("admin_edit_topic.html", topic=topic)
 
 
 @app.route("/admin/request/<int:request_id>/<action>")
@@ -541,16 +645,22 @@ def admin_request_action(request_id, action):
     if action not in {"accepted", "rejected", "pending"}:
         flash("Invalid request action.", "error")
         return redirect(url_for("admin"))
-
     conn = get_db()
-    execute(conn, 
-        "UPDATE join_requests SET status = ? WHERE id = ?",
-        (action, request_id),
-    )
+    execute(conn, "UPDATE join_requests SET status = ? WHERE id = ?", (action, request_id))
     conn.commit()
     conn.close()
-
     flash(f"Request status changed to {action}.", "success")
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/request/<int:request_id>/delete")
+@admin_required
+def admin_delete_request(request_id):
+    conn = get_db()
+    execute(conn, "DELETE FROM join_requests WHERE id = ?", (request_id,))
+    conn.commit()
+    conn.close()
+    flash("Join request deleted.", "success")
     return redirect(url_for("admin"))
 
 
@@ -558,21 +668,14 @@ def admin_request_action(request_id, action):
 @admin_required
 def admin_toggle_topic(topic_id):
     conn = get_db()
-    topic = execute(conn, 
-        "SELECT looking_for_members FROM topics WHERE id = ?", (topic_id,)
-    ).fetchone()
-
+    topic = execute(conn, "SELECT looking_for_members FROM topics WHERE id = ?", (topic_id,)).fetchone()
     if topic:
         new_value = 0 if topic["looking_for_members"] else 1
-        execute(conn, 
-            "UPDATE topics SET looking_for_members = ? WHERE id = ?",
-            (new_value, topic_id),
-        )
+        execute(conn, "UPDATE topics SET looking_for_members = ? WHERE id = ?", (new_value, topic_id))
         conn.commit()
         flash("Topic member status updated.", "success")
     else:
         flash("Topic not found.", "error")
-
     conn.close()
     return redirect(url_for("admin"))
 
@@ -586,6 +689,54 @@ def admin_delete_topic(topic_id):
     conn.close()
     flash("Topic deleted.", "success")
     return redirect(url_for("admin"))
+
+
+@app.route("/admin/visits/clear")
+@admin_required
+def admin_clear_visits():
+    conn = get_db()
+    execute(conn, "DELETE FROM visits")
+    conn.commit()
+    conn.close()
+    flash("Visit log cleared.", "success")
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/export/<dataset>")
+@admin_required
+def admin_export(dataset):
+    if dataset not in {"topics", "requests", "visits"}:
+        return redirect(url_for("admin"))
+    conn = get_db()
+    try:
+        if dataset == "topics":
+            rows = execute(conn, "SELECT id, creator_name, enrollment_no, email, mobile, gender, topic_name, description, looking_for_members, creator_contact, created_at FROM topics ORDER BY id DESC").fetchall()
+        elif dataset == "requests":
+            rows = execute(conn, """
+                SELECT jr.id, jr.applicant_name, jr.applicant_enrollment, jr.applicant_email, jr.applicant_mobile,
+                       jr.applicant_gender, t.topic_name, t.creator_name AS leader, jr.preferred_role, jr.message,
+                       jr.status, jr.created_at
+                FROM join_requests jr
+                LEFT JOIN topics t ON t.id = jr.topic_id
+                ORDER BY jr.id DESC
+            """).fetchall()
+        else:
+            rows = execute(conn, "SELECT id, ip_address, page, timestamp FROM visits ORDER BY id DESC").fetchall()
+        headers = list(rows[0].keys()) if rows else []
+        output = io.StringIO()
+        writer = csv.writer(output)
+        if headers:
+            writer.writerow(headers)
+            for row in rows:
+                writer.writerow([row[h] for h in headers])
+    finally:
+        conn.close()
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={dataset}.csv"},
+    )
 
 
 @app.route("/logout")

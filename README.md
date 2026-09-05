@@ -1,39 +1,24 @@
-# Environmental Science Project Manager
+# Environmental Science Project Topic Manager
 
-Production-ready Flask app with Render Postgres support.
-
-## Local
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python app.py
-```
-
-If `DATABASE_URL` is not set, the app uses the local `class_project.db`.
+Flask web app for creating project topics, joining teams, leader approvals, admin management, PostgreSQL persistence, CSV exports, and student request-status lookup.
 
 ## Render
+- Build command: `pip install -r requirements.txt`
+- Start command: `gunicorn app:app`
+- Set `DATABASE_URL`, `SECRET_KEY`, and `ADMIN_PASSWORD` in Render Environment Variables.
 
-Set these Environment Variables on the Render web service:
+## Admin features
+- View topic/request/visit statistics
+- Search topics and requests
+- Filter requests by status
+- Edit topics
+- Open/close member enrollment
+- Delete topics or requests
+- Accept/reject/reset requests
+- Export topics/requests/visits to CSV
+- Clear visit logs
 
-- `DATABASE_URL` = the Render Postgres **Internal Database URL**
-- `SECRET_KEY` = a long random secret
-- `ADMIN_PASSWORD` = your chosen admin password
+## Student feature
+- Check join-request status using enrollment number
 
-Start Command:
-
-```bash
-gunicorn app:app
-```
-
-## Migrate existing SQLite data
-
-Use the separate `migrate_db.py` script once, with the Render Postgres **External Database URL** in your local shell:
-
-```bash
-export DATABASE_URL='YOUR_EXTERNAL_POSTGRES_URL'
-python migrate_db.py
-```
-
-Never commit `DATABASE_URL`, `.env`, passwords, or secret keys.
+The application uses PostgreSQL in production when `DATABASE_URL` is present and SQLite locally otherwise.

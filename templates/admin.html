@@ -8,10 +8,10 @@
 </head>
 <body class="bg-light">
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
             <h1>🔑 Admin Dashboard</h1>
-            <p class="text-muted mb-0">Manage topics, join requests, and visit statistics.</p>
+            <p class="text-muted mb-0">Manage topics, requests, and site activity.</p>
         </div>
         <div>
             <a href="{{ url_for('index') }}" class="btn btn-outline-primary">🏠 Home</a>
@@ -21,128 +21,105 @@
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
-        <div class="alert alert-{{ 'success' if category == 'success' else ('info' if category == 'info' else 'danger') }}">
-            {{ message }}
-        </div>
+        <div class="alert alert-{{ 'success' if category == 'success' else ('info' if category == 'info' else 'danger') }}">{{ message }}</div>
       {% endfor %}
     {% endwith %}
 
     <div class="row g-3 mb-4">
-        <div class="col-sm-6 col-lg-3"><div class="card shadow-sm"><div class="card-body">
-            <div class="text-muted">Topics</div><h2>{{ stats.topics }}</h2>
-        </div></div></div>
-        <div class="col-sm-6 col-lg-3"><div class="card shadow-sm"><div class="card-body">
-            <div class="text-muted">Join Requests</div><h2>{{ stats.requests }}</h2>
-        </div></div></div>
-        <div class="col-sm-6 col-lg-3"><div class="card shadow-sm"><div class="card-body">
-            <div class="text-muted">Accepted</div><h2>{{ stats.accepted }}</h2>
-        </div></div></div>
-        <div class="col-sm-6 col-lg-3"><div class="card shadow-sm"><div class="card-body">
-            <div class="text-muted">Visits</div><h2>{{ stats.visits }}</h2>
-        </div></div></div>
+        <div class="col-6 col-lg-2"><div class="card shadow-sm"><div class="card-body"><div class="text-muted">Topics</div><h2>{{ stats.topics }}</h2></div></div></div>
+        <div class="col-6 col-lg-2"><div class="card shadow-sm"><div class="card-body"><div class="text-muted">Requests</div><h2>{{ stats.requests }}</h2></div></div></div>
+        <div class="col-6 col-lg-2"><div class="card shadow-sm"><div class="card-body"><div class="text-muted">Pending</div><h2>{{ stats.pending }}</h2></div></div></div>
+        <div class="col-6 col-lg-2"><div class="card shadow-sm"><div class="card-body"><div class="text-muted">Accepted</div><h2>{{ stats.accepted }}</h2></div></div></div>
+        <div class="col-6 col-lg-2"><div class="card shadow-sm"><div class="card-body"><div class="text-muted">Rejected</div><h2>{{ stats.rejected }}</h2></div></div></div>
+        <div class="col-6 col-lg-2"><div class="card shadow-sm"><div class="card-body"><div class="text-muted">Visits</div><h2>{{ stats.visits }}</h2></div></div></div>
     </div>
 
     <div class="card shadow-sm mb-4">
-        <div class="card-header"><strong>📚 Topics</strong></div>
+        <div class="card-header"><strong>🔎 Search & Filter</strong></div>
+        <div class="card-body">
+            <form class="row g-2" method="GET" action="{{ url_for('admin') }}">
+                <div class="col-md-7"><input class="form-control" name="q" value="{{ q }}" placeholder="Search name, enrollment, or topic"></div>
+                <div class="col-md-3">
+                    <select class="form-select" name="status">
+                        <option value="">All request statuses</option>
+                        <option value="pending" {% if status=='pending' %}selected{% endif %}>Pending</option>
+                        <option value="accepted" {% if status=='accepted' %}selected{% endif %}>Accepted</option>
+                        <option value="rejected" {% if status=='rejected' %}selected{% endif %}>Rejected</option>
+                    </select>
+                </div>
+                <div class="col-md-2"><button class="btn btn-dark w-100">Apply</button></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-2">
+        <a href="{{ url_for('admin_export', dataset='topics') }}" class="btn btn-outline-success btn-sm">⬇ Export Topics CSV</a>
+        <a href="{{ url_for('admin_export', dataset='requests') }}" class="btn btn-outline-success btn-sm">⬇ Export Requests CSV</a>
+        <a href="{{ url_for('admin_export', dataset='visits') }}" class="btn btn-outline-success btn-sm">⬇ Export Visits CSV</a>
+        <a href="{{ url_for('admin_clear_visits') }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Clear all visit logs?');">🗑 Clear Visit Log</a>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header"><strong>📚 Topics ({{ topics|length }} shown)</strong></div>
         <div class="card-body table-responsive">
             <table class="table table-bordered table-hover align-middle">
-                <thead class="table-dark">
-                    <tr>
-                        <th>ID</th><th>Topic</th><th>Creator</th><th>Enrollment</th>
-                        <th>Members?</th><th>Created</th><th>Actions</th>
-                    </tr>
-                </thead>
+                <thead class="table-dark"><tr><th>ID</th><th>Topic</th><th>Creator</th><th>Enrollment</th><th>Contact</th><th>Members?</th><th>Created</th><th>Actions</th></tr></thead>
                 <tbody>
                 {% for topic in topics %}
-                    <tr>
-                        <td>{{ topic['id'] }}</td>
-                        <td>{{ topic['topic_name'] }}</td>
-                        <td>{{ topic['creator_name'] }}</td>
-                        <td>{{ topic['enrollment_no'] }}</td>
-                        <td>
-                            {% if topic['looking_for_members'] %}
-                                <span class="badge bg-success">Open</span>
-                            {% else %}
-                                <span class="badge bg-secondary">Closed</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ topic['created_at'] or '—' }}</td>
-                        <td class="text-nowrap">
-                            <a class="btn btn-sm btn-outline-primary"
-                               href="{{ url_for('admin_toggle_topic', topic_id=topic['id']) }}">
-                                Toggle
-                            </a>
-                            <a class="btn btn-sm btn-outline-danger"
-                               href="{{ url_for('admin_delete_topic', topic_id=topic['id']) }}"
-                               onclick="return confirm('Delete this topic and its requests?');">
-                                Delete
-                            </a>
-                        </td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="7" class="text-center">No topics.</td></tr>
-                {% endfor %}
+                <tr>
+                    <td>{{ topic['id'] }}</td>
+                    <td>{{ topic['topic_name'] }}<br><small class="text-muted">{{ topic['description'] or '' }}</small></td>
+                    <td>{{ topic['creator_name'] }}</td>
+                    <td>{{ topic['enrollment_no'] }}</td>
+                    <td>{{ topic['creator_contact'] or topic['email'] or topic['mobile'] or '—' }}</td>
+                    <td>{% if topic['looking_for_members'] %}<span class="badge bg-success">Open</span>{% else %}<span class="badge bg-secondary">Closed</span>{% endif %}</td>
+                    <td>{{ topic['created_at'] or '—' }}</td>
+                    <td class="text-nowrap">
+                        <a class="btn btn-sm btn-primary" href="{{ url_for('admin_edit_topic', topic_id=topic['id']) }}">Edit</a>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_toggle_topic', topic_id=topic['id']) }}">Toggle</a>
+                        <a class="btn btn-sm btn-outline-danger" href="{{ url_for('admin_delete_topic', topic_id=topic['id']) }}" onclick="return confirm('Delete this topic and its requests?');">Delete</a>
+                    </td>
+                </tr>
+                {% else %}<tr><td colspan="8" class="text-center">No topics found.</td></tr>{% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 
     <div class="card shadow-sm mb-4">
-        <div class="card-header"><strong>🤝 Join Requests</strong></div>
+        <div class="card-header"><strong>🤝 Join Requests ({{ join_requests|length }} shown)</strong></div>
         <div class="card-body table-responsive">
             <table class="table table-bordered table-hover align-middle">
-                <thead class="table-dark">
-                    <tr>
-                        <th>ID</th><th>Applicant</th><th>Topic</th><th>Contact</th>
-                        <th>Role</th><th>Status</th><th>Actions</th>
-                    </tr>
-                </thead>
+                <thead class="table-dark"><tr><th>ID</th><th>Applicant</th><th>Topic</th><th>Contact</th><th>Role</th><th>Message</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                 {% for req in join_requests %}
-                    <tr>
-                        <td>{{ req['id'] }}</td>
-                        <td>{{ req['applicant_name'] }}<br><small>{{ req['applicant_enrollment'] }}</small></td>
-                        <td>{{ req['topic_name'] or 'Deleted topic' }}</td>
-                        <td>{{ req['applicant_email'] or '—' }}<br>{{ req['applicant_mobile'] or '—' }}</td>
-                        <td>{{ req['preferred_role'] or '—' }}</td>
-                        <td>{{ req['status'] }}</td>
-                        <td class="text-nowrap">
-                            <a href="{{ url_for('admin_request_action', request_id=req['id'], action='accepted') }}"
-                               class="btn btn-sm btn-success">Accept</a>
-                            <a href="{{ url_for('admin_request_action', request_id=req['id'], action='rejected') }}"
-                               class="btn btn-sm btn-warning">Reject</a>
-                            <a href="{{ url_for('admin_request_action', request_id=req['id'], action='pending') }}"
-                               class="btn btn-sm btn-secondary">Pending</a>
-                        </td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="7" class="text-center">No requests.</td></tr>
-                {% endfor %}
+                <tr>
+                    <td>{{ req['id'] }}</td>
+                    <td>{{ req['applicant_name'] }}<br><small>{{ req['applicant_enrollment'] }}</small></td>
+                    <td>{{ req['topic_name'] or 'Deleted topic' }}<br><small>{{ req['creator_name'] or '' }}</small></td>
+                    <td>{{ req['applicant_email'] or '—' }}<br>{{ req['applicant_mobile'] or '—' }}</td>
+                    <td>{{ req['preferred_role'] or '—' }}</td>
+                    <td>{{ req['message'] or '—' }}</td>
+                    <td>{% if req['status']=='accepted' %}<span class="badge bg-success">Accepted</span>{% elif req['status']=='rejected' %}<span class="badge bg-danger">Rejected</span>{% else %}<span class="badge bg-warning text-dark">Pending</span>{% endif %}</td>
+                    <td class="text-nowrap">
+                        <a href="{{ url_for('admin_request_action', request_id=req['id'], action='accepted') }}" class="btn btn-sm btn-success">Accept</a>
+                        <a href="{{ url_for('admin_request_action', request_id=req['id'], action='rejected') }}" class="btn btn-sm btn-warning">Reject</a>
+                        <a href="{{ url_for('admin_request_action', request_id=req['id'], action='pending') }}" class="btn btn-sm btn-secondary">Pending</a>
+                        <a href="{{ url_for('admin_delete_request', request_id=req['id']) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this request?');">Delete</a>
+                    </td>
+                </tr>
+                {% else %}<tr><td colspan="8" class="text-center">No requests found.</td></tr>{% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 
     <div class="card shadow-sm">
-        <div class="card-header"><strong>👁 Visit Log</strong></div>
+        <div class="card-header"><strong>👁 Recent Visits (up to 500)</strong></div>
         <div class="card-body table-responsive" style="max-height: 450px;">
-            <table class="table table-sm table-striped">
-                <thead>
-                    <tr><th>ID</th><th>IP Address</th><th>Page</th><th>Timestamp</th></tr>
-                </thead>
-                <tbody>
-                {% for visit in visits %}
-                    <tr>
-                        <td>{{ visit['id'] }}</td>
-                        <td>{{ visit['ip_address'] }}</td>
-                        <td>{{ visit['page'] }}</td>
-                        <td>{{ visit['timestamp'] }}</td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="4" class="text-center">No visits recorded.</td></tr>
-                {% endfor %}
-                </tbody>
-            </table>
+            <table class="table table-sm table-striped"><thead><tr><th>ID</th><th>IP Address</th><th>Page</th><th>Timestamp</th></tr></thead><tbody>
+            {% for visit in visits %}<tr><td>{{ visit['id'] }}</td><td>{{ visit['ip_address'] }}</td><td>{{ visit['page'] }}</td><td>{{ visit['timestamp'] }}</td></tr>{% else %}<tr><td colspan="4" class="text-center">No visits recorded.</td></tr>{% endfor %}
+            </tbody></table>
         </div>
     </div>
 </div>
