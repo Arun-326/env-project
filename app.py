@@ -516,12 +516,12 @@ def admin():
     visits = execute(conn, "SELECT * FROM visits ORDER BY id DESC").fetchall()
 
     stats = {
-        "topics": execute(conn, "SELECT COUNT(*) FROM topics").fetchone()[0],
-        "requests": execute(conn, "SELECT COUNT(*) FROM join_requests").fetchone()[0],
+        "topics": execute(conn, "SELECT COUNT(*) AS count FROM topics").fetchone()["count"],
+        "requests": execute(conn, "SELECT COUNT(*) AS count FROM join_requests").fetchone()["count"],
         "accepted": execute(conn, 
-            "SELECT COUNT(*) FROM join_requests WHERE status = 'accepted'"
-        ).fetchone()[0],
-        "visits": execute(conn, "SELECT COUNT(*) FROM visits").fetchone()[0],
+            "SELECT COUNT(*) AS count FROM join_requests WHERE status = 'accepted'"
+        ).fetchone()["count"],
+        "visits": execute(conn, "SELECT COUNT(*) AS count FROM visits").fetchone()["count"],
     }
 
     conn.close()
