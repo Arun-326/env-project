@@ -39,7 +39,7 @@ def get_db():
 def execute(conn, sql, params=()):
     if using_postgres():
         sql = sql.replace("?", "%s")
-    return execute(conn, sql, params)
+    return conn.execute(sql, params)
 
 
 def init_db():
